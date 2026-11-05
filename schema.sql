@@ -152,3 +152,4 @@ CREATE TABLE IF NOT EXISTS `kitchen_order_items` (
   `variant` VARCHAR(255) DEFAULT '',
   INDEX (`kitchen_order_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
