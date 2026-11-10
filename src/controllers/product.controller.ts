@@ -29,6 +29,14 @@ export const createProduct = async (req: Request, res: Response): Promise<any> =
       return res.status(400).json({ message: 'Nama dan harga produk wajib diisi' });
     }
 
+    if (/\d/.test(name)) {
+      return res.status(400).json({ message: 'Nama produk hanya boleh berupa huruf (tidak boleh mengandung angka)' });
+    }
+
+    if (isNaN(Number(price)) || Number(price) <= 0) {
+      return res.status(400).json({ message: 'Harga produk harus berupa angka lebih dari 0' });
+    }
+
     const [result]: any = await pool.query(
       `INSERT INTO products (name, category, price, description, image, is_available, created_at)
        VALUES (?, ?, ?, ?, ?, 1, NOW())`,
@@ -58,6 +66,14 @@ export const updateProduct = async (req: Request, res: Response): Promise<any> =
   try {
     const { id } = req.params;
     const { name, category, price, description, isAvailable } = req.body;
+
+    if (name && /\d/.test(name)) {
+      return res.status(400).json({ message: 'Nama produk hanya boleh berupa huruf (tidak boleh mengandung angka)' });
+    }
+
+    if (price !== undefined && (isNaN(Number(price)) || Number(price) <= 0)) {
+      return res.status(400).json({ message: 'Harga produk harus berupa angka lebih dari 0' });
+    }
 
     await pool.query(
       `UPDATE products 

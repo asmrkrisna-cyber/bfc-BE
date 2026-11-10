@@ -14,13 +14,13 @@ export const login = async (req: Request, res: Response): Promise<Response> => {
     )) as [any[], any];
 
     if (!rows || rows.length === 0) {
-      return res.status(401).json({ message: 'Username atau password salah!' });
+      return res.status(401).json({ message: 'Email atau password salah!' });
     }
 
     const user = rows[0];
 
     if (password !== user.password) {
-      return res.status(401).json({ message: 'Username atau password salah!' });
+      return res.status(401).json({ message: 'Email atau password salah!' });
     }
 
     const token = jwt.sign(
