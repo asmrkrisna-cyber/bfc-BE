@@ -29,12 +29,10 @@ export const createMobileOrder = async (req: Request, res: Response): Promise<an
 
     await connection.beginTransaction();
 
-    // 1. Generate Order ID (#BF-XXXX) & Nomor Antrean (A-XX / B-XX)
-    const randomDigits = Math.floor(1000 + Math.random() * 9000);
-    const orderId = `#BF-${randomDigits}`;
+    // 1. Generate / Gunakan Order ID (#BF-XXXX) & Nomor Antrean (A-XX / B-XX)
+    const orderId = req.body.orderId || `#BF-${Math.floor(1000 + Math.random() * 9000)}`;
     const queueLetter = Math.random() > 0.5 ? 'A' : 'B';
-    const queueNum = Math.floor(10 + Math.random() * 89);
-    const queueNumber = `${queueLetter}-${queueNum}`;
+    const queueNumber = req.body.queueNumber || `${queueLetter}-${Math.floor(10 + Math.random() * 89)}`;
 
     const finalTotal = Number(totalPrice) || 0;
     const finalDiscount = Number(discountAmount) || 0;
@@ -79,7 +77,7 @@ export const createMobileOrder = async (req: Request, res: Response): Promise<an
     // Supaya pesanan dari ponsel langsung terbaca di layar kasir & barista
     const [kitchenResult]: any = await connection.query(
       `INSERT INTO kitchen_orders (order_number, transaction_id, customer_name, source, order_type, table_number, payment_method, status, created_at)
-       VALUES (?, ?, ?, 'Mobile App', ?, 'Mobile', ?, 'Baru', NOW())`,
+       VALUES (?, ?, ?, 'App BreakFree', ?, 'Mobile', ?, 'Baru', NOW())`,
       [queueNumber, orderId, customerName, pickupType.includes('Takeaway') ? 'Takeaway' : 'Dine-in', paymentMethod]
     );
 
