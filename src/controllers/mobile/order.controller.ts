@@ -37,11 +37,18 @@ export const createMobileOrder = async (req: Request, res: Response): Promise<an
     const finalTotal = Number(totalPrice) || 0;
     const finalDiscount = Number(discountAmount) || 0;
 
+    const isCash = paymentMethod?.toLowerCase() === 'cash' || paymentMethod?.toLowerCase() === 'tunai';
+    const initialStatus = isCash ? 'menungguPembayaran' : 'diterima';
+    const initialKitchenStatus = isCash ? 'Menunggu Bayar' : 'Baru';
+    const initialBaristaNote = isCash
+      ? 'Menunggu pembayaran tunai di kasir. Silakan bayar ke kasir agar pesanan dapat segera diracik.'
+      : 'Pesanan masuk dan segera disiapkan di bar racik.';
+
     // 2. Simpan ke tabel mobile_orders
     const [orderResult]: any = await connection.query(
       `INSERT INTO mobile_orders 
        (order_id, queue_number, customer_id, customer_name, counter_name, pickup_type, status, total_price, discount_amount, payment_method, promo_code, estimated_minutes, barista_name, barista_note, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, 'diterima', ?, ?, ?, ?, 8, 'Barista Reza', 'Pesanan masuk dan segera disiapkan di bar racik.', NOW())`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Barista Reza', ?, NOW())`,
       [
         orderId,
         queueNumber,
@@ -49,10 +56,13 @@ export const createMobileOrder = async (req: Request, res: Response): Promise<an
         customerName,
         counterName,
         pickupType,
+        initialStatus,
         finalTotal,
         finalDiscount,
         paymentMethod,
         promoCode,
+        isCash ? 10 : 8,
+        initialBaristaNote,
       ]
     );
 
@@ -77,8 +87,8 @@ export const createMobileOrder = async (req: Request, res: Response): Promise<an
     // Supaya pesanan dari ponsel langsung terbaca di layar kasir & barista
     const [kitchenResult]: any = await connection.query(
       `INSERT INTO kitchen_orders (order_number, transaction_id, customer_name, source, order_type, table_number, payment_method, status, created_at)
-       VALUES (?, ?, ?, 'App BreakFree', ?, 'Mobile', ?, 'Baru', NOW())`,
-      [queueNumber, orderId, customerName, pickupType.includes('Takeaway') ? 'Takeaway' : 'Dine-in', paymentMethod]
+       VALUES (?, ?, ?, 'App BreakFree', ?, 'Mobile', ?, ?, NOW())`,
+      [queueNumber, orderId, customerName, pickupType.includes('Takeaway') ? 'Takeaway' : 'Dine-in', paymentMethod, initialKitchenStatus]
     );
 
     const kitchenOrderId = kitchenResult.insertId;
@@ -109,20 +119,22 @@ export const createMobileOrder = async (req: Request, res: Response): Promise<an
 
     return res.status(201).json({
       success: true,
-      message: 'Pesanan berhasil dibuat! Barista kami segera meracik pesananmu.',
+      message: isCash
+        ? 'Pesanan berhasil dibuat! Silakan bayar tunai di kasir agar pesanan segera diracik.'
+        : 'Pesanan berhasil dibuat! Barista kami segera meracik pesananmu.',
       order: {
         id: orderId,
         queueNumber,
         counterName,
         pickupType,
-        status: 'diterima',
+        status: initialStatus,
         totalPrice: finalTotal,
         discountAmount: finalDiscount,
         paymentMethod,
         promoCode,
-        estimatedMinutes: 8,
+        estimatedMinutes: isCash ? 10 : 8,
         baristaName: 'Barista Reza',
-        baristaNote: 'Pesanan masuk dan segera disiapkan di bar racik.',
+        baristaNote: initialBaristaNote,
         cashbackEarned: cashbackPoints,
         createdAt: new Date().toISOString(),
         items,
@@ -161,7 +173,7 @@ export const getActiveOrder = async (req: Request, res: Response): Promise<any> 
     } else {
       const [r]: any = await pool.query(
         `SELECT * FROM mobile_orders 
-         WHERE customer_id = ? AND status IN ('diterima', 'diproses', 'siapDiambil')
+         WHERE customer_id = ? AND status IN ('menungguPembayaran', 'diterima', 'diproses', 'siapDiambil')
          ORDER BY id DESC LIMIT 1`,
         [customerId]
       );
@@ -346,7 +358,7 @@ export const updateOrderStatus = async (req: Request, res: Response): Promise<an
     const cleanId = String(rawId).startsWith('#') ? String(rawId) : `#${rawId}`;
     const { status, baristaNote } = req.body;
 
-    const validStatuses = ['diterima', 'diproses', 'siapDiambil', 'selesai', 'dibatalkan'];
+    const validStatuses = ['menungguPembayaran', 'diterima', 'diproses', 'siapDiambil', 'selesai', 'dibatalkan'];
     if (!validStatuses.includes(status)) {
       return res.status(400).json({
         success: false,
@@ -357,6 +369,9 @@ export const updateOrderStatus = async (req: Request, res: Response): Promise<an
     let note = baristaNote;
     if (!note) {
       switch (status) {
+        case 'menungguPembayaran':
+          note = 'Menunggu pembayaran tunai di kasir. Silakan bayar ke kasir agar pesanan segera diracik.';
+          break;
         case 'diterima':
           note = 'Pesanan dikonfirmasi & masuk antrean barista.';
           break;
@@ -383,7 +398,15 @@ export const updateOrderStatus = async (req: Request, res: Response): Promise<an
     );
 
     // Sync juga status ke kitchen_orders
-    const kitchenStatus = status === 'selesai' ? 'Selesai' : status === 'diproses' ? 'Diproses' : status === 'siapDiambil' ? 'Siap' : 'Baru';
+    const kitchenStatus = status === 'selesai'
+      ? 'Selesai'
+      : status === 'diproses'
+      ? 'Diproses'
+      : status === 'siapDiambil'
+      ? 'Siap Diambil'
+      : status === 'menungguPembayaran'
+      ? 'Menunggu Bayar'
+      : 'Baru';
     await pool.query(
       'UPDATE kitchen_orders SET status = ? WHERE transaction_id = ?',
       [kitchenStatus, cleanId]

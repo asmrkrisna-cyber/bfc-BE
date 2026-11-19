@@ -79,7 +79,7 @@ export async function initMobileDatabase(): Promise<void> {
         customer_name VARCHAR(150) NOT NULL,
         counter_name VARCHAR(100) DEFAULT 'Counter Bar 01',
         pickup_type VARCHAR(100) DEFAULT 'Dine-in (Minum di Kafe)',
-        status ENUM('diterima', 'diproses', 'siapDiambil', 'selesai', 'dibatalkan') DEFAULT 'diterima',
+        status VARCHAR(50) DEFAULT 'diterima',
         total_price DECIMAL(12,2) NOT NULL DEFAULT 0.00,
         discount_amount DECIMAL(12,2) DEFAULT 0.00,
         payment_method VARCHAR(50) DEFAULT 'QRIS',

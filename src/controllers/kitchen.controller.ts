@@ -24,7 +24,8 @@ export const getKitchenOrders = async (req: Request, res: Response): Promise<any
 
     for (const mo of unsyncedMobile) {
       let mappedStatus = 'Baru';
-      if (mo.status === 'diproses') mappedStatus = 'Diproses';
+      if (mo.status === 'menungguPembayaran') mappedStatus = 'Menunggu Bayar';
+      else if (mo.status === 'diproses') mappedStatus = 'Diproses';
       else if (mo.status === 'siapDiambil') mappedStatus = 'Siap Diambil';
 
       const [ins]: any = await pool.query(
@@ -122,7 +123,7 @@ export const updateKitchenStatus = async (req: Request, res: Response): Promise<
 
     // Ambil data pesanan dapur untuk sinkronisasi dengan mobile_orders
     const [kitchenRows]: any = await pool.query(
-      'SELECT id, order_number, transaction_id FROM kitchen_orders WHERE id = ? OR order_number = ? OR transaction_id = ?',
+      'SELECT id, order_number, transaction_id, payment_method FROM kitchen_orders WHERE id = ? OR order_number = ? OR transaction_id = ?',
       [rawId, rawId, rawId]
     );
 
@@ -140,7 +141,10 @@ export const updateKitchenStatus = async (req: Request, res: Response): Promise<
 
       if (status === 'Diproses') {
         mobileStatus = 'diproses';
-        baristaNote = 'Barista sedang meracik minuman & hidanganmu di bar.';
+        const isCash = ko.payment_method?.toLowerCase() === 'cash' || ko.payment_method?.toLowerCase() === 'tunai';
+        baristaNote = isCash
+          ? 'Pembayaran tunai telah diterima kasir. Barista sedang meracik pesananmu di bar.'
+          : 'Barista sedang meracik minuman & hidanganmu di bar.';
         estimatedMinutes = 5;
       } else if (status === 'Siap Diambil' || status === 'Siap') {
         mobileStatus = 'siapDiambil';
