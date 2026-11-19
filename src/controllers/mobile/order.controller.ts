@@ -147,13 +147,26 @@ export const createMobileOrder = async (req: Request, res: Response): Promise<an
 export const getActiveOrder = async (req: Request, res: Response): Promise<any> => {
   try {
     const customerId = req.customer?.id || 1;
+    const requestedOrderId = req.query.orderId as string | undefined;
 
-    const [rows]: any = await pool.query(
-      `SELECT * FROM mobile_orders 
-       WHERE customer_id = ? AND status IN ('diterima', 'diproses', 'siapDiambil')
-       ORDER BY id DESC LIMIT 1`,
-      [customerId]
-    );
+    let rows: any;
+    if (requestedOrderId && requestedOrderId.trim() !== '') {
+      const [r]: any = await pool.query(
+        `SELECT * FROM mobile_orders 
+         WHERE order_id = ? OR queue_number = ? 
+         ORDER BY id DESC LIMIT 1`,
+        [requestedOrderId.trim(), requestedOrderId.trim()]
+      );
+      rows = r;
+    } else {
+      const [r]: any = await pool.query(
+        `SELECT * FROM mobile_orders 
+         WHERE customer_id = ? AND status IN ('diterima', 'diproses', 'siapDiambil')
+         ORDER BY id DESC LIMIT 1`,
+        [customerId]
+      );
+      rows = r;
+    }
 
     if (!rows || rows.length === 0) {
       return res.json({
