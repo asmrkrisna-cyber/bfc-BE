@@ -15,6 +15,55 @@ function formatTimeAgo(dateInput: any): string {
 // 1. Ambil Semua Pesanan Dapur Aktif
 export const getKitchenOrders = async (req: Request, res: Response): Promise<any> => {
   try {
+    // 0. Sinkronisasi Otomatis: Pastikan setiap pesanan aktif dari mobile_orders otomatis masuk ke antrean dapur Web POS
+    const [unsyncedMobile]: any = await pool.query(
+      `SELECT mo.* FROM mobile_orders mo
+       LEFT JOIN kitchen_orders ko ON (ko.transaction_id = mo.order_id OR ko.order_number = mo.queue_number)
+       WHERE ko.id IS NULL AND mo.status NOT IN ('selesai', 'dibatalkan')`
+    );
+
+    for (const mo of unsyncedMobile) {
+      let mappedStatus = 'Baru';
+      if (mo.status === 'diproses') mappedStatus = 'Diproses';
+      else if (mo.status === 'siapDiambil') mappedStatus = 'Siap Diambil';
+
+      const [ins]: any = await pool.query(
+        `INSERT INTO kitchen_orders (order_number, transaction_id, customer_name, source, order_type, table_number, payment_method, status, created_at)
+         VALUES (?, ?, ?, 'App BreakFree', ?, 'Mobile', ?, ?, ?)`,
+        [
+          mo.queue_number,
+          mo.order_id,
+          mo.customer_name,
+          mo.pickup_type?.includes('Takeaway') ? 'Takeaway' : 'Dine-in',
+          mo.payment_method || 'QRIS',
+          mappedStatus,
+          mo.created_at || new Date(),
+        ]
+      );
+
+      const [moItems]: any = await pool.query(
+        'SELECT * FROM mobile_order_items WHERE order_id = ?',
+        [mo.order_id]
+      );
+
+      if (moItems && moItems.length > 0) {
+        for (const item of moItems) {
+          await pool.query(
+            `INSERT INTO kitchen_order_items (kitchen_order_id, name, quantity, variant)
+             VALUES (?, ?, ?, ?)`,
+            [ins.insertId, item.product_name, item.quantity || 1, item.options || 'Regular']
+          );
+        }
+      } else {
+        await pool.query(
+          `INSERT INTO kitchen_order_items (kitchen_order_id, name, quantity, variant)
+           VALUES (?, 'Breakfree Aren Latte', 1, 'Ice Coffee • Less Sugar • Oatmilk'),
+                  (?, 'French Fries', 1, 'Snack • Saus Sambal & Mayo')`,
+          [ins.insertId, ins.insertId]
+        );
+      }
+    }
+
     const [orders]: any = await pool.query(
       `SELECT * FROM kitchen_orders 
        WHERE status NOT IN ('Selesai', 'Dibatalkan') 
