@@ -41,6 +41,8 @@ CREATE TABLE IF NOT EXISTS `products` (
   `id` INT AUTO_INCREMENT PRIMARY KEY,
   `name` VARCHAR(150) NOT NULL,
   `category` VARCHAR(50) NOT NULL DEFAULT 'Espresso Based',
+  `subcategory` VARCHAR(100) DEFAULT NULL,
+  `tag` VARCHAR(100) DEFAULT NULL,
   `price` DECIMAL(12,2) NOT NULL DEFAULT 0.00,
   `description` TEXT,
   `image` VARCHAR(255) DEFAULT '',
@@ -152,4 +154,98 @@ CREATE TABLE IF NOT EXISTS `kitchen_order_items` (
   `variant` VARCHAR(255) DEFAULT '',
   INDEX (`kitchen_order_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ========================================================
+-- BAGIAN KHUSUS: APLIKASI MOBILE PELANGGAN (APPMOBILE)
+-- ========================================================
+
+-- 10. Tabel Customers (Akun Pengguna Aplikasi Mobile BreakFree)
+CREATE TABLE IF NOT EXISTS `customers` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `name` VARCHAR(150) NOT NULL,
+  `email` VARCHAR(150) NOT NULL UNIQUE,
+  `phone` VARCHAR(30) DEFAULT '0812 •••• 7890',
+  `password` VARCHAR(255) NOT NULL,
+  `birth_date` VARCHAR(50) DEFAULT '18 Mei 2000',
+  `member_badge` VARCHAR(50) DEFAULT 'Member Gold',
+  `points` INT DEFAULT 1240,
+  `reset_token` VARCHAR(100) DEFAULT NULL,
+  `reset_token_expires` DATETIME DEFAULT NULL,
+  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Seed default customer akun untuk testing mobile
+INSERT IGNORE INTO `customers` (`id`, `name`, `email`, `phone`, `password`, `birth_date`, `member_badge`, `points`) VALUES
+(1, 'HAFIZ MAULANA', 'hafizizza@gmail.com', '0812 •••• 7890', 'AnakLuarGerbang', '18 Mei 2000', 'Member Gold', 1240),
+(2, 'HAFIZ MAULANA', 'hafiz.maulana@gmail.com', '0812 •••• 7890', 'AnakLuarGerbang', '18 Mei 2000', 'Member Gold', 1240);
+
+-- 11. Tabel Customer Points History (Riwayat Cashback Poin Member)
+CREATE TABLE IF NOT EXISTS `customer_points_history` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `customer_id` INT NOT NULL,
+  `order_id` VARCHAR(50) DEFAULT NULL,
+  `type` ENUM('EARN', 'REDEEM') NOT NULL DEFAULT 'EARN',
+  `points` INT NOT NULL,
+  `description` VARCHAR(255) NOT NULL,
+  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX (`customer_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Seed default points history
+INSERT IGNORE INTO `customer_points_history` (`customer_id`, `order_id`, `type`, `points`, `description`) VALUES
+(1, '#BF-0302', 'EARN', 450, 'Cashback Poin dari Pesanan #BF-0302'),
+(1, '#BF-0297', 'EARN', 620, 'Cashback Poin dari Pesanan #BF-0297'),
+(1, NULL, 'EARN', 170, 'Bonus Pendaftaran Member Gold Baru');
+
+-- 12. Tabel Mobile Orders (Pesanan Pelanggan dari App Mobile & Live Tracking)
+CREATE TABLE IF NOT EXISTS `mobile_orders` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `order_id` VARCHAR(50) NOT NULL UNIQUE,
+  `queue_number` VARCHAR(20) NOT NULL,
+  `customer_id` INT NOT NULL,
+  `customer_name` VARCHAR(150) NOT NULL,
+  `counter_name` VARCHAR(100) DEFAULT 'Counter Bar 01',
+  `pickup_type` VARCHAR(100) DEFAULT 'Dine-in (Minum di Kafe)',
+  `status` ENUM('diterima', 'diproses', 'siapDiambil', 'selesai', 'dibatalkan') DEFAULT 'diterima',
+  `total_price` DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+  `discount_amount` DECIMAL(12,2) DEFAULT 0.00,
+  `payment_method` VARCHAR(50) DEFAULT 'QRIS',
+  `promo_code` VARCHAR(50) DEFAULT NULL,
+  `estimated_minutes` INT DEFAULT 8,
+  `barista_name` VARCHAR(100) DEFAULT 'Barista Reza',
+  `barista_note` VARCHAR(255) DEFAULT 'Biji kopi baru diekstrak, sedang menuang susu segar creamy.',
+  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX (`customer_id`),
+  INDEX (`status`),
+  INDEX (`order_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 13. Tabel Mobile Order Items (Item Rincian Pesanan Mobile)
+CREATE TABLE IF NOT EXISTS `mobile_order_items` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `order_id` VARCHAR(50) NOT NULL,
+  `product_id` VARCHAR(50) DEFAULT NULL,
+  `product_name` VARCHAR(150) NOT NULL,
+  `options` VARCHAR(255) DEFAULT 'Regular',
+  `price` DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+  `quantity` INT NOT NULL DEFAULT 1,
+  `image` VARCHAR(255) DEFAULT '',
+  INDEX (`order_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Seed default pesanan aktif untuk live tracking mobile
+INSERT IGNORE INTO `mobile_orders` (`id`, `order_id`, `queue_number`, `customer_id`, `customer_name`, `counter_name`, `pickup_type`, `status`, `total_price`, `discount_amount`, `payment_method`, `promo_code`, `estimated_minutes`, `barista_name`, `barista_note`) VALUES
+(1, '#BF-2849', 'A-14', 1, 'Hafiz Maulana', 'Counter Bar 01', 'Dine-in (Minum di Kafe)', 'diproses', 42000.00, 10000.00, 'QRIS', 'BREAK20', 6, 'Barista Reza', 'Espresso baru selesai diekstrak, sedang menuang susu segar creamy.');
+
+INSERT IGNORE INTO `mobile_order_items` (`order_id`, `product_id`, `product_name`, `options`, `price`, `quantity`, `image`) VALUES
+('#BF-2849', 'demo-item-1', 'Breakfree Aren Latte', 'Ice Coffee • Less Sugar • Oatmilk', 25000.00, 1, ''),
+('#BF-2849', 'demo-item-2', 'French Fries', 'Snack • Saus Sambal & Mayo', 17000.00, 1, '');
+
+-- Seed Voucher Mobile ke Tabel Discounts
+INSERT IGNORE INTO `discounts` (`code`, `name`, `type`, `value`, `min_purchase`, `is_active`) VALUES
+('BREAK20', 'Voucher Spesial BREAK20 (Diskon 20% maks 10rb)', 'percentage', 20.00, 30000.00, 1),
+('KOPIKAMPUS', 'Promo Komunitas KopiKampus Diskon 20%', 'percentage', 20.00, 0.00, 1);
+
 

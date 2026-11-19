@@ -6,6 +6,7 @@ import transactionRoutes from './transaction.routes';
 import discountRoutes from './discount.routes';
 import kitchenRoutes from './kitchen.routes';
 import cashierRoutes from './cashier.routes';
+import mobileRoutes from './mobile';
 
 const router = Router();
 
@@ -16,5 +17,6 @@ router.use('/transactions', transactionRoutes);
 router.use('/discounts', discountRoutes);
 router.use('/kitchen-orders', kitchenRoutes);
 router.use('/cashiers', cashierRoutes);
+router.use('/mobile', mobileRoutes);
 
 export default router;

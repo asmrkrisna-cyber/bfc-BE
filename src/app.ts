@@ -28,6 +28,7 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use('/api', globalRateLimiter);
 app.use('/api/v1/auth/login', authRateLimiter);
 app.use('/api/v1/cashiers/verify-pin', authRateLimiter);
+app.use('/api/v1/mobile/auth/login', authRateLimiter);
 
 // 5. ROUTE / ENDPOINT: Terletak di tengah aplikasi
 app.get('/', (req, res) => {
