@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import pool from '../config/database';
+import { confirmCashOrderPoints, refundOrderPoints } from '../services/point.service';
 
 function formatTimeAgo(dateInput: any): string {
   if (!dateInput) return 'Baru saja';
@@ -166,6 +167,13 @@ export const updateKitchenStatus = async (req: Request, res: Response): Promise<
          WHERE order_id = ? OR queue_number = ?`,
         [mobileStatus, baristaNote, estimatedMinutes, ko.transaction_id, ko.order_number]
       );
+
+      // Konfirmasi atau kembalikan poin pelanggan otomatis
+      if (['Diproses', 'Siap Diambil', 'Siap', 'Selesai'].includes(status)) {
+        await confirmCashOrderPoints(ko.transaction_id || ko.order_number);
+      } else if (status === 'Dibatalkan') {
+        await refundOrderPoints(ko.transaction_id || ko.order_number, 'Dibatalkan oleh staf dapur');
+      }
     }
 
     return res.json({
@@ -196,6 +204,7 @@ export const cancelKitchenOrder = async (req: Request, res: Response): Promise<a
 
     if (kitchenRows && kitchenRows.length > 0) {
       const ko = kitchenRows[0];
+      await refundOrderPoints(ko.transaction_id || ko.order_number, reason || 'Dibatalkan oleh staf kasir/dapur.');
       await pool.query(
         `UPDATE mobile_orders 
          SET status = 'dibatalkan', barista_note = ?, updated_at = NOW() 

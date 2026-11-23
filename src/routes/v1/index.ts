@@ -7,6 +7,8 @@ import discountRoutes from './discount.routes';
 import kitchenRoutes from './kitchen.routes';
 import cashierRoutes from './cashier.routes';
 import mobileRoutes from './mobile';
+import aiRoutes from './ai.routes';
+import pointRoutes from './point.routes';
 
 const router = Router();
 
@@ -18,5 +20,7 @@ router.use('/discounts', discountRoutes);
 router.use('/kitchen-orders', kitchenRoutes);
 router.use('/cashiers', cashierRoutes);
 router.use('/mobile', mobileRoutes);
+router.use('/ai', aiRoutes);
+router.use('/points', pointRoutes);
 
 export default router;

@@ -1,5 +1,11 @@
 import { Request, Response } from 'express';
 import pool from '../../config/database';
+import {
+  calculateRedemption,
+  calculateEarning,
+  confirmCashOrderPoints,
+  refundOrderPoints,
+} from '../../services/point.service';
 
 /**
  * 1. Buat Pesanan Baru dari Aplikasi Mobile (Checkout)
@@ -18,6 +24,7 @@ export const createMobileOrder = async (req: Request, res: Response): Promise<an
       totalPrice,
       discountAmount = 0,
       counterName = 'Counter Bar 01',
+      usePoints = false,
     } = req.body;
 
     if (!items || !Array.isArray(items) || items.length === 0) {
@@ -34,21 +41,109 @@ export const createMobileOrder = async (req: Request, res: Response): Promise<an
     const queueLetter = Math.random() > 0.5 ? 'A' : 'B';
     const queueNumber = req.body.queueNumber || `${queueLetter}-${Math.floor(10 + Math.random() * 89)}`;
 
-    const finalTotal = Number(totalPrice) || 0;
-    const finalDiscount = Number(discountAmount) || 0;
+    // Hitung subtotal pesanan dari item-item
+    let calculatedSubtotal = 0;
+    for (const item of items) {
+      const p = Number(item.price) || 0;
+      const q = Number(item.quantity) || 1;
+      calculatedSubtotal += p * q;
+    }
+
+    let pointsUsed = 0;
+    let pointDiscountAmount = 0;
+    let currentBalance = 0;
+
+    // 2. Jika usePoints aktif, kunci baris user & hitung diskon poin secara ketat di backend
+    if (usePoints && customerId) {
+      const [custRows]: any = await connection.query(
+        'SELECT points FROM customers WHERE id = ? FOR UPDATE',
+        [customerId]
+      );
+
+      if (custRows.length > 0) {
+        const userBalance = Number(custRows[0].points) || 0;
+        const calc = calculateRedemption(userBalance, calculatedSubtotal);
+
+        pointsUsed = calc.pointsUsed;
+        pointDiscountAmount = calc.discountAmount;
+
+        if (pointsUsed > 0) {
+          // Potong poin dari saldo pelanggan
+          await connection.query(
+            'UPDATE customers SET points = points - ? WHERE id = ?',
+            [pointsUsed, customerId]
+          );
+
+          // Catat log pemakaian poin
+          await connection.query(
+            `INSERT INTO point_logs (user_id, transaction_id, type, points, description, created_at)
+             VALUES (?, ?, 'REDEEM', ?, ?, NOW())`,
+            [
+              customerId,
+              orderId,
+              pointsUsed,
+              `Tukar ${pointsUsed} Poin (Diskon Rp ${pointDiscountAmount.toLocaleString('id-ID')}) untuk Pesanan ${orderId}`,
+            ]
+          );
+        }
+      }
+    }
+
+    const promoDiscount = Number(discountAmount) || 0;
+    const totalDiscount = promoDiscount + pointDiscountAmount;
+    // Subtotal yang benar-benar dibayar pelanggan (setelah diskon poin & promo)
+    const payableSubtotal = Math.max(0, calculatedSubtotal - totalDiscount);
+
+    // Hitung PPN 10% dari pesanan
+    const taxRate = 0.10;
+    const taxAmount = Math.round(calculatedSubtotal * taxRate);
+    const finalTotal = payableSubtotal + taxAmount;
+
+    // 3. Hitung Earning Poin (Cashback 5% = Math.floor(payableSubtotal / 1000) * 5)
+    const earnedPoints = calculateEarning(payableSubtotal);
 
     const isCash = paymentMethod?.toLowerCase() === 'cash' || paymentMethod?.toLowerCase() === 'tunai';
+    const isPending = isCash;
     const initialStatus = isCash ? 'menungguPembayaran' : 'diterima';
     const initialKitchenStatus = isCash ? 'Menunggu Bayar' : 'Baru';
     const initialBaristaNote = isCash
       ? 'Menunggu pembayaran tunai di kasir. Silakan bayar ke kasir agar pesanan dapat segera diracik.'
       : 'Pesanan masuk dan segera disiapkan di bar racik.';
 
-    // 2. Simpan ke tabel mobile_orders
-    const [orderResult]: any = await connection.query(
+    if (!isPending && earnedPoints > 0 && customerId) {
+      await connection.query(
+        'UPDATE customers SET points = points + ? WHERE id = ?',
+        [earnedPoints, customerId]
+      );
+
+      await connection.query(
+        `INSERT INTO point_logs (user_id, transaction_id, type, points, description, created_at)
+         VALUES (?, ?, 'EARN', ?, ?, NOW())`,
+        [
+          customerId,
+          orderId,
+          earnedPoints,
+          `Cashback 5% (+${earnedPoints} Poin) dari Pesanan ${orderId}`,
+        ]
+      );
+    }
+
+    // Ambil saldo akhir customer terkini
+    if (customerId) {
+      const [finalCustRows]: any = await connection.query(
+        'SELECT points FROM customers WHERE id = ?',
+        [customerId]
+      );
+      if (finalCustRows.length > 0) {
+        currentBalance = Number(finalCustRows[0].points) || 0;
+      }
+    }
+
+    // 4. Simpan ke tabel mobile_orders
+    await connection.query(
       `INSERT INTO mobile_orders 
-       (order_id, queue_number, customer_id, customer_name, counter_name, pickup_type, status, total_price, discount_amount, payment_method, promo_code, estimated_minutes, barista_name, barista_note, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Barista Reza', ?, NOW())`,
+       (order_id, queue_number, customer_id, customer_name, counter_name, pickup_type, status, total_price, discount_amount, tax_amount, points_used, points_earned, payment_method, promo_code, estimated_minutes, barista_name, barista_note, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Barista Reza', ?, NOW())`,
       [
         orderId,
         queueNumber,
@@ -58,7 +153,10 @@ export const createMobileOrder = async (req: Request, res: Response): Promise<an
         pickupType,
         initialStatus,
         finalTotal,
-        finalDiscount,
+        totalDiscount,
+        taxAmount,
+        pointsUsed,
+        earnedPoints,
         paymentMethod,
         promoCode,
         isCash ? 10 : 8,
@@ -66,7 +164,7 @@ export const createMobileOrder = async (req: Request, res: Response): Promise<an
       ]
     );
 
-    // 3. Simpan item-item pesanan ke mobile_order_items
+    // 5. Simpan item-item pesanan ke mobile_order_items
     for (const item of items) {
       await connection.query(
         `INSERT INTO mobile_order_items (order_id, product_id, product_name, options, price, quantity, image)
@@ -83,8 +181,7 @@ export const createMobileOrder = async (req: Request, res: Response): Promise<an
       );
     }
 
-    // 4. Sinkronisasi Otomatis ke Dapur POS (kitchen_orders & kitchen_order_items)
-    // Supaya pesanan dari ponsel langsung terbaca di layar kasir & barista
+    // 6. Sinkronisasi Otomatis ke Dapur POS (kitchen_orders & kitchen_order_items)
     const [kitchenResult]: any = await connection.query(
       `INSERT INTO kitchen_orders (order_number, transaction_id, customer_name, source, order_type, table_number, payment_method, status, created_at)
        VALUES (?, ?, ?, 'App BreakFree', ?, 'Mobile', ?, ?, NOW())`,
@@ -96,23 +193,38 @@ export const createMobileOrder = async (req: Request, res: Response): Promise<an
       await connection.query(
         `INSERT INTO kitchen_order_items (kitchen_order_id, name, quantity, variant)
          VALUES (?, ?, ?, ?)`,
-        [kitchenOrderId, item.name, item.quantity || 1, item.options || 'Regular']
+        [kitchenOrderId, item.name || item.productName, item.quantity || 1, item.options || 'Regular']
       );
     }
 
-    // 5. Hitung Cashback Poin Reward Pelanggan (100 poin per Rp 10.000 belanja)
-    const cashbackPoints = Math.floor(finalTotal / 100);
-    if (cashbackPoints > 0 && customerId) {
+    // 7. Simpan juga ke tabel transactions agar otomatis masuk laporan kasir & struk POS
+    try {
       await connection.query(
-        'UPDATE customers SET points = points + ? WHERE id = ?',
-        [cashbackPoints, customerId]
+        `INSERT INTO transactions 
+         (transaction_id, customer_id, customer_name, table_number, subtotal, discount_amount, points_used, points_earned, tax, total, payment_method, cash_given, change_amount, status, created_at)
+         VALUES (?, ?, ?, 'Mobile', ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, NOW())
+         ON DUPLICATE KEY UPDATE 
+           discount_amount = VALUES(discount_amount),
+           points_used = VALUES(points_used),
+           points_earned = VALUES(points_earned),
+           tax = VALUES(tax),
+           total = VALUES(total)`,
+        [
+          orderId,
+          customerId,
+          customerName,
+          calculatedSubtotal,
+          totalDiscount,
+          pointsUsed,
+          earnedPoints,
+          taxAmount,
+          finalTotal,
+          paymentMethod,
+          isCash ? 'PENDING' : 'SUKSES',
+        ]
       );
-
-      await connection.query(
-        `INSERT INTO customer_points_history (customer_id, order_id, type, points, description, created_at)
-         VALUES (?, ?, 'EARN', ?, ?, NOW())`,
-        [customerId, orderId, cashbackPoints, `Cashback Poin dari Pesanan ${orderId}`]
-      );
+    } catch (txErr) {
+      console.warn('Gagal sync ke tabel transactions (non-blocking):', txErr);
     }
 
     await connection.commit();
@@ -128,16 +240,24 @@ export const createMobileOrder = async (req: Request, res: Response): Promise<an
         counterName,
         pickupType,
         status: initialStatus,
+        subtotal: calculatedSubtotal,
+        taxAmount: taxAmount,
         totalPrice: finalTotal,
-        discountAmount: finalDiscount,
+        discountAmount: totalDiscount,
         paymentMethod,
         promoCode,
         estimatedMinutes: isCash ? 10 : 8,
         baristaName: 'Barista Reza',
         baristaNote: initialBaristaNote,
-        cashbackEarned: cashbackPoints,
         createdAt: new Date().toISOString(),
         items,
+      },
+      points: {
+        earned: earnedPoints,
+        used: pointsUsed,
+        discountAmount: pointDiscountAmount,
+        currentBalance: currentBalance,
+        isPending: isPending,
       },
     });
   } catch (error: any) {
@@ -207,6 +327,7 @@ export const getActiveOrder = async (req: Request, res: Response): Promise<any> 
         status: order.status,
         totalPrice: Number(order.total_price),
         discountAmount: Number(order.discount_amount),
+        taxAmount: Number(order.tax_amount || 0),
         paymentMethod: order.payment_method,
         promoCode: order.promo_code,
         estimatedMinutes: order.estimated_minutes,
@@ -324,6 +445,7 @@ export const trackOrder = async (req: Request, res: Response): Promise<any> => {
         status: order.status,
         totalPrice: Number(order.total_price),
         discountAmount: Number(order.discount_amount),
+        taxAmount: Number(order.tax_amount || 0),
         paymentMethod: order.payment_method,
         estimatedMinutes: order.estimated_minutes,
         baristaName: order.barista_name,
@@ -401,16 +523,23 @@ export const updateOrderStatus = async (req: Request, res: Response): Promise<an
     const kitchenStatus = status === 'selesai'
       ? 'Selesai'
       : status === 'diproses'
-      ? 'Diproses'
-      : status === 'siapDiambil'
-      ? 'Siap Diambil'
-      : status === 'menungguPembayaran'
-      ? 'Menunggu Bayar'
-      : 'Baru';
+        ? 'Diproses'
+        : status === 'siapDiambil'
+          ? 'Siap Diambil'
+          : status === 'menungguPembayaran'
+            ? 'Menunggu Bayar'
+            : 'Baru';
     await pool.query(
       'UPDATE kitchen_orders SET status = ? WHERE transaction_id = ?',
       [kitchenStatus, cleanId]
     );
+
+    // Integrasi Poin: Jika pesanan tunai dikonfirmasi (diproses/selesai), kreditkan poin cashback
+    if (['diterima', 'diproses', 'siapDiambil', 'selesai'].includes(status)) {
+      await confirmCashOrderPoints(cleanId);
+    } else if (status === 'dibatalkan') {
+      await refundOrderPoints(cleanId, note || 'Pesanan dibatalkan');
+    }
 
     return res.json({
       success: true,
