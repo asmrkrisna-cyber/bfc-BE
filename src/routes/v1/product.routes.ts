@@ -13,6 +13,7 @@ router.get('/', getProducts);
 router.post('/', createProduct);
 router.put('/:id', updateProduct);
 router.patch('/:id/toggle', toggleProductStatus);
+router.patch('/:id/availability', toggleProductStatus);
 router.delete('/:id', deleteProduct);
 
 export default router;

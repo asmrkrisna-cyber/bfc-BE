@@ -1,8 +1,9 @@
 import { Router } from 'express';
-import { validatePromo } from '../../../controllers/mobile/promo.controller';
+import { getActivePromos, validatePromo } from '../../../controllers/mobile/promo.controller';
 
 const router = Router();
 
+router.get('/active', getActivePromos);
 router.post('/validate', validatePromo);
 
 export default router;

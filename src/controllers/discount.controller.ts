@@ -1,58 +1,66 @@
 import { Request, Response } from 'express';
-import pool from '../config/database';
+import {
+  getAllDiscountsService,
+  getActiveDiscountsService,
+  createDiscountService,
+  updateDiscountService,
+  toggleDiscountStatusService,
+  deleteDiscountService,
+  validateDiscountService,
+} from '../services/discount.service';
 
-// 1. Ambil Semua Diskon
-export const getDiscounts = async (req: Request, res: Response): Promise<any> => {
+// 1. Ambil Semua Diskon (Web POS)
+export const getDiscounts = async (_req: Request, res: Response): Promise<any> => {
   try {
-    const [rows]: any = await pool.query('SELECT * FROM discounts ORDER BY id DESC');
-    const mapped = rows.map((d: any) => ({
-      id: d.id.toString(),
-      code: d.code,
-      name: d.name,
-      type: d.type as 'PERCENTAGE' | 'FIXED',
-      value: Number(d.value) || 0,
-      minPurchase: Number(d.min_purchase) || 0,
-      isActive: d.is_active === 1,
-    }));
-    return res.json(mapped);
+    const discounts = await getAllDiscountsService();
+    return res.json(discounts);
   } catch (error: any) {
     console.error('Error getDiscounts:', error);
     return res.status(500).json({ message: 'Gagal mengambil data diskon', error: error.message });
   }
 };
 
-// 2. Tambah Diskon Baru
+// 2. Ambil Hanya Diskon Aktif (Aplikasi Mobile)
+export const getActiveDiscounts = async (_req: Request, res: Response): Promise<any> => {
+  try {
+    const discounts = await getActiveDiscountsService();
+    return res.json({
+      success: true,
+      count: discounts.length,
+      discounts,
+    });
+  } catch (error: any) {
+    console.error('Error getActiveDiscounts:', error);
+    return res.status(500).json({ success: false, message: 'Gagal mengambil promo aktif', error: error.message });
+  }
+};
+
+// 3. Tambah Diskon Baru (Web POS)
 export const createDiscount = async (req: Request, res: Response): Promise<any> => {
   try {
-    const { code, name, type, value, minPurchase } = req.body;
-    if (!code || !name || value === undefined) {
-      return res.status(400).json({ message: 'Kode, nama, dan nilai diskon wajib diisi' });
+    const { code, name, title, description, type, discountType, value, discountValue, minPurchase, minOrder, maxDiscount } = req.body;
+    if (!code || (!name && !title) || (value === undefined && discountValue === undefined)) {
+      return res.status(400).json({ message: 'Kode, judul/nama, dan nilai diskon wajib diisi' });
     }
 
-    const [result]: any = await pool.query(
-      `INSERT INTO discounts (code, name, type, value, min_purchase, is_active, created_at)
-       VALUES (?, ?, ?, ?, ?, 1, NOW())`,
-      [
-        code.toUpperCase(),
-        name,
-        type === 'FIXED' ? 'FIXED' : 'PERCENTAGE',
-        Number(value),
-        Number(minPurchase) || 0,
-      ]
-    );
+    const discount = await createDiscountService({
+      code,
+      name,
+      title,
+      description,
+      type,
+      discountType,
+      value,
+      discountValue,
+      minPurchase,
+      minOrder,
+      maxDiscount,
+    });
 
     return res.status(201).json({
       success: true,
       message: 'Diskon berhasil dibuat',
-      discount: {
-        id: result.insertId.toString(),
-        code: code.toUpperCase(),
-        name,
-        type: type === 'FIXED' ? 'FIXED' : 'PERCENTAGE',
-        value: Number(value),
-        minPurchase: Number(minPurchase) || 0,
-        isActive: true,
-      },
+      discount,
     });
   } catch (error: any) {
     console.error('Error createDiscount:', error);
@@ -60,18 +68,29 @@ export const createDiscount = async (req: Request, res: Response): Promise<any> 
   }
 };
 
-// 3. Toggle Status Aktif Diskon
+// 4. Update / Edit Detail Diskon (Web POS)
+export const updateDiscount = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const rawId = req.params.id;
+    const id = Array.isArray(rawId) ? rawId[0] : rawId;
+    const discount = await updateDiscountService(id, req.body);
+    return res.json({
+      success: true,
+      message: 'Diskon berhasil diperbarui',
+      discount,
+    });
+  } catch (error: any) {
+    console.error('Error updateDiscount:', error);
+    return res.status(500).json({ message: error.message || 'Gagal memperbarui diskon' });
+  }
+};
+
+// 5. Toggle Status Aktif Diskon (Web POS)
 export const toggleDiscountStatus = async (req: Request, res: Response): Promise<any> => {
   try {
-    const { id } = req.params;
-    await pool.query(
-      `UPDATE discounts SET is_active = CASE WHEN is_active = 1 THEN 0 ELSE 1 END WHERE id = ?`,
-      [id]
-    );
-
-    const [updated]: any = await pool.query('SELECT is_active FROM discounts WHERE id = ?', [id]);
-    const isActive = updated.length > 0 && updated[0].is_active === 1;
-
+    const rawId = req.params.id;
+    const id = Array.isArray(rawId) ? rawId[0] : rawId;
+    const isActive = await toggleDiscountStatusService(id);
     return res.json({
       success: true,
       message: 'Status diskon berhasil diubah',
@@ -79,15 +98,16 @@ export const toggleDiscountStatus = async (req: Request, res: Response): Promise
     });
   } catch (error: any) {
     console.error('Error toggleDiscountStatus:', error);
-    return res.status(500).json({ message: 'Gagal mengubah status diskon', error: error.message });
+    return res.status(500).json({ message: error.message || 'Gagal mengubah status diskon' });
   }
 };
 
-// 4. Hapus Diskon
+// 6. Hapus Diskon (Web POS)
 export const deleteDiscount = async (req: Request, res: Response): Promise<any> => {
   try {
-    const { id } = req.params;
-    await pool.query('DELETE FROM discounts WHERE id = ?', [id]);
+    const rawId = req.params.id;
+    const id = Array.isArray(rawId) ? rawId[0] : rawId;
+    await deleteDiscountService(id);
     return res.json({
       success: true,
       message: 'Diskon berhasil dihapus',
@@ -95,5 +115,29 @@ export const deleteDiscount = async (req: Request, res: Response): Promise<any> 
   } catch (error: any) {
     console.error('Error deleteDiscount:', error);
     return res.status(500).json({ message: 'Gagal menghapus diskon', error: error.message });
+  }
+};
+
+// 7. Validasi Diskon & Hitung Potongan Server-Side (Mobile & POS Checkout)
+export const validateDiscount = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { code, subtotal } = req.body;
+    const result = await validateDiscountService(code, Number(subtotal) || 0);
+
+    if (!result.valid) {
+      return res.status(400).json({
+        success: false,
+        valid: false,
+        message: result.message,
+      });
+    }
+
+    return res.json({
+      success: true,
+      ...result,
+    });
+  } catch (error: any) {
+    console.error('Error validateDiscount:', error);
+    return res.status(500).json({ success: false, message: 'Gagal memvalidasi diskon', error: error.message });
   }
 };

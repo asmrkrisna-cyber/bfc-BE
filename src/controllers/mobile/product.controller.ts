@@ -7,10 +7,14 @@ import pool from '../../config/database';
  */
 export const getMobileProducts = async (req: Request, res: Response): Promise<any> => {
   try {
-    const { category, subcategory, search } = req.query;
+    const { category, subcategory, search, availableOnly } = req.query;
 
-    let query = 'SELECT * FROM products WHERE is_available = 1';
+    let query = 'SELECT * FROM products WHERE 1=1';
     const params: any[] = [];
+
+    if (availableOnly === 'true') {
+      query += ' AND is_available = 1';
+    }
 
     if (category && category !== 'Semua') {
       query += ' AND LOWER(category) = LOWER(?)';
@@ -41,7 +45,7 @@ export const getMobileProducts = async (req: Request, res: Response): Promise<an
       tag: p.tag || null,
       description: p.description || '',
       image: p.image || '',
-      isAvailable: p.is_available === 1,
+      isAvailable: p.is_available === 1 || p.is_available === true,
     }));
 
     return res.json({

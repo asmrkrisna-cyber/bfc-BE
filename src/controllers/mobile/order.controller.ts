@@ -6,6 +6,7 @@ import {
   confirmCashOrderPoints,
   refundOrderPoints,
 } from '../../services/point.service';
+import { validateDiscountService } from '../../services/discount.service';
 
 /**
  * 1. Buat Pesanan Baru dari Aplikasi Mobile (Checkout)
@@ -35,6 +36,23 @@ export const createMobileOrder = async (req: Request, res: Response): Promise<an
     }
 
     await connection.beginTransaction();
+
+    // 0. Validasi ketersediaan menu (Cek status Sold Out di MySQL)
+    for (const item of items) {
+      const prodName = (item.name || item.productName || '').trim();
+      const prodId = item.id || item.productId || 0;
+      const [prodRows]: any = await connection.query(
+        'SELECT id, name, is_available FROM products WHERE id = ? OR LOWER(name) = LOWER(?) LIMIT 1',
+        [prodId, prodName]
+      );
+      if (prodRows.length > 0 && (prodRows[0].is_available === 0 || prodRows[0].is_available === false)) {
+        await connection.rollback();
+        return res.status(400).json({
+          success: false,
+          message: `Pesanan ditolak: Menu "${prodRows[0].name}" saat ini sedang habis (Sold Out). Silakan hapus menu ini dari keranjang.`,
+        });
+      }
+    }
 
     // 1. Generate / Gunakan Order ID (#BF-XXXX) & Nomor Antrean (A-XX / B-XX)
     const orderId = req.body.orderId || `#BF-${Math.floor(1000 + Math.random() * 9000)}`;
@@ -89,8 +107,23 @@ export const createMobileOrder = async (req: Request, res: Response): Promise<an
       }
     }
 
-    const promoDiscount = Number(discountAmount) || 0;
-    const totalDiscount = promoDiscount + pointDiscountAmount;
+    // Validasi & hitung ulang diskon voucher di server-side (jangan percaya input diskon client)
+    let voucherDiscountAmount = 0;
+    let validVoucherCode: string | null = null;
+    if (promoCode && String(promoCode).trim().length > 0) {
+      const vRes = await validateDiscountService(String(promoCode), calculatedSubtotal);
+      if (!vRes.valid) {
+        await connection.rollback();
+        return res.status(400).json({
+          success: false,
+          message: vRes.message,
+        });
+      }
+      voucherDiscountAmount = Number(vRes.discountAmount || 0);
+      validVoucherCode = vRes.code || validVoucherCode;
+    }
+
+    const totalDiscount = voucherDiscountAmount + pointDiscountAmount;
     // Subtotal yang benar-benar dibayar pelanggan (setelah diskon poin & promo)
     const payableSubtotal = Math.max(0, calculatedSubtotal - totalDiscount);
 
@@ -197,34 +230,78 @@ export const createMobileOrder = async (req: Request, res: Response): Promise<an
       );
     }
 
-    // 7. Simpan juga ke tabel transactions agar otomatis masuk laporan kasir & struk POS
+    // 7. Simpan juga ke tabel transactions dan transaction_items agar sinkron dengan Web POS & Rekap Shift
     try {
+      const orderTypeVal = pickupType.includes('Takeaway') ? 'TAKEAWAY' : 'DINE_IN';
+      const posTableLabel = pickupType.includes('Takeaway') ? 'Takeaway' : 'Dine-in (Self Pick-Up)';
+      const posPaymentMethod = isCash ? 'Cash' : 'QRIS';
+      const initialTrxStatus = isCash ? 'PENDING' : 'PAID';
+
       await connection.query(
         `INSERT INTO transactions 
-         (transaction_id, customer_id, customer_name, table_number, subtotal, discount_amount, points_used, points_earned, tax, total, payment_method, cash_given, change_amount, status, created_at)
-         VALUES (?, ?, ?, 'Mobile', ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, NOW())
+         (transaction_id, order_number, order_source, order_type, customer_id, customer_name, table_number, 
+          subtotal, voucher_code, voucher_discount, points_used, points_discount, discount_amount, 
+          tax, tax_amount, total, payment_method, cash_given, change_amount, status, created_at)
+         VALUES (?, ?, 'MOBILE', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, NOW())
          ON DUPLICATE KEY UPDATE 
-           discount_amount = VALUES(discount_amount),
+           order_number = VALUES(order_number),
+           order_source = VALUES(order_source),
+           order_type = VALUES(order_type),
+           customer_name = VALUES(customer_name),
+           table_number = VALUES(table_number),
+           subtotal = VALUES(subtotal),
+           voucher_code = VALUES(voucher_code),
+           voucher_discount = VALUES(voucher_discount),
            points_used = VALUES(points_used),
-           points_earned = VALUES(points_earned),
+           points_discount = VALUES(points_discount),
+           discount_amount = VALUES(discount_amount),
            tax = VALUES(tax),
-           total = VALUES(total)`,
+           tax_amount = VALUES(tax_amount),
+           total = VALUES(total),
+           payment_method = VALUES(payment_method),
+           status = VALUES(status)`,
         [
           orderId,
+          queueNumber,
+          orderTypeVal,
           customerId,
           customerName,
+          posTableLabel,
           calculatedSubtotal,
-          totalDiscount,
+          validVoucherCode,
+          voucherDiscountAmount,
           pointsUsed,
-          earnedPoints,
+          pointDiscountAmount,
+          totalDiscount,
+          taxAmount,
           taxAmount,
           finalTotal,
-          paymentMethod,
-          isCash ? 'PENDING' : 'SUKSES',
+          posPaymentMethod,
+          initialTrxStatus,
         ]
       );
+
+      // Simpan item-item ke transaction_items agar Riwayat POS & Rekap Shift membaca item terjual
+      for (const item of items) {
+        const itemP = Number(item.price) || 0;
+        const itemQ = Number(item.quantity) || 1;
+        await connection.query(
+          `INSERT INTO transaction_items 
+           (transaction_id, product_id, product_name, price, quantity, subtotal_item, note, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
+          [
+            orderId,
+            item.id || item.productId || null,
+            item.name || item.productName || 'Menu BreakFree',
+            itemP,
+            itemQ,
+            itemP * itemQ,
+            item.options || '',
+          ]
+        );
+      }
     } catch (txErr) {
-      console.warn('Gagal sync ke tabel transactions (non-blocking):', txErr);
+      console.warn('Gagal sync ke tabel transactions & items (non-blocking):', txErr);
     }
 
     await connection.commit();

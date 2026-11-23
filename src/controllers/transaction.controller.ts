@@ -62,8 +62,21 @@ export const getTransactions = async (req: Request, res: Response) => {
 // 3. Mengambil Detail Item Berdasarkan ID Transaksi
 export const getTransactionItems = async (req: Request, res: Response) => {
   try {
-    const { transactionId } = req.params;
-    const [rows] = await pool.query('SELECT * FROM transaction_items WHERE transaction_id = ?', [transactionId]);
+    const rawId = req.params.transactionId;
+    const transactionId = Array.isArray(rawId) ? rawId[0] : rawId;
+    const cleanId = decodeURIComponent(transactionId).trim();
+    const withHash = cleanId.startsWith('#') ? cleanId : `#${cleanId}`;
+    const withoutHash = cleanId.startsWith('#') ? cleanId.slice(1) : cleanId;
+
+    const [rows]: any = await pool.query(
+      `SELECT id, transaction_id, product_id, product_name, price, quantity, 
+              COALESCE(subtotal_item, price * quantity) AS subtotal_item, note, created_at 
+       FROM transaction_items 
+       WHERE transaction_id = ? OR transaction_id = ? 
+       ORDER BY id ASC`,
+      [withHash, withoutHash]
+    );
+
     return res.status(200).json(rows);
   } catch (error: any) {
     console.error('Error getTransactionItems:', error);

@@ -2,6 +2,7 @@ import app from './app';
 import pool from './config/database';
 import { logger } from './utils/logger';
 import { runPointsMigration } from './scripts/migratePoints';
+import { runSyncMigration } from './scripts/migrateSyncPosMobile';
 
 const PORT = process.env.PORT || 5000;
 
@@ -11,11 +12,12 @@ async function startServer() {
     await pool.query('SELECT 1');
     logger.info('MySQL Database connected successfully.');
 
-    // Jalankan migrasi kolom dan tabel poin jika belum ada
+    // Jalankan migrasi kolom dan tabel poin & sinkronisasi POS/Mobile
     try {
       await runPointsMigration();
+      await runSyncMigration();
     } catch (migErr) {
-      logger.warn({ err: migErr }, 'Point migration warning (ignored if already applied)');
+      logger.warn({ err: migErr }, 'Migration warning (ignored if already applied)');
     }
 
     app.listen(PORT, () => {
