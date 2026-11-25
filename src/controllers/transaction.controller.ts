@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import pool from '../config/database';
 import { createTransactionService, voidTransactionService } from '../services/transaction.service';
+import { syncPendingMidtransOrders } from '../services/midtrans.service';
 
 // 1. Membuat Transaksi Baru (POS & terintegrasi dengan Poin)
 export const createTransaction = async (req: Request, res: Response) => {
@@ -51,6 +52,7 @@ export const createTransaction = async (req: Request, res: Response) => {
 // 2. Mengambil Semua Daftar Transaksi (Riwayat)
 export const getTransactions = async (req: Request, res: Response) => {
   try {
+    await syncPendingMidtransOrders();
     const [rows] = await pool.query('SELECT * FROM transactions ORDER BY id DESC');
     return res.status(200).json(rows);
   } catch (error: any) {

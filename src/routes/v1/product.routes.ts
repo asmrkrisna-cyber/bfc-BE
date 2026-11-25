@@ -6,10 +6,11 @@ import {
   toggleProductStatus,
   deleteProduct,
 } from '../../controllers/product.controller';
+import { optionalCustomerAuth } from '../../middlewares/customerAuth.middleware';
 
 const router = Router();
 
-router.get('/', getProducts);
+router.get('/', optionalCustomerAuth, getProducts);
 router.post('/', createProduct);
 router.put('/:id', updateProduct);
 router.patch('/:id/toggle', toggleProductStatus);

@@ -3,6 +3,8 @@ import pool from './config/database';
 import { logger } from './utils/logger';
 import { runPointsMigration } from './scripts/migratePoints';
 import { runSyncMigration } from './scripts/migrateSyncPosMobile';
+import { runFullIntegrationMigration } from './scripts/migrateFullIntegration';
+import { runMidtransMigration } from './scripts/migrateMidtrans';
 
 const PORT = process.env.PORT || 5000;
 
@@ -12,10 +14,12 @@ async function startServer() {
     await pool.query('SELECT 1');
     logger.info('MySQL Database connected successfully.');
 
-    // Jalankan migrasi kolom dan tabel poin & sinkronisasi POS/Mobile
+    // Jalankan migrasi kolom dan tabel poin, sinkronisasi POS/Mobile, integrasi penuh & Midtrans
     try {
       await runPointsMigration();
       await runSyncMigration();
+      await runFullIntegrationMigration();
+      await runMidtransMigration();
     } catch (migErr) {
       logger.warn({ err: migErr }, 'Migration warning (ignored if already applied)');
     }

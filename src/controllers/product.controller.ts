@@ -1,19 +1,30 @@
 import { Request, Response } from 'express';
 import pool from '../config/database';
+import { getUserFavoriteProductIds } from '../services/favorite.service';
 
-// 1. Ambil Semua Produk
+// 1. Ambil Semua Produk (POS & Optional Customer Favorite flag)
 export const getProducts = async (req: Request, res: Response): Promise<any> => {
   try {
     const [rows]: any = await pool.query('SELECT * FROM products ORDER BY id DESC');
-    const mapped = rows.map((p: any) => ({
-      id: p.id.toString(),
-      name: p.name,
-      category: p.category || 'Espresso Based',
-      price: Number(p.price) || 0,
-      description: p.description || '',
-      image: p.image || '',
-      isAvailable: p.is_available === 0 ? false : true,
-    }));
+    const favoriteIds = req.customer?.id
+      ? await getUserFavoriteProductIds(req.customer.id)
+      : new Set<number>();
+
+    const mapped = rows.map((p: any) => {
+      const isFav = favoriteIds.has(Number(p.id));
+      return {
+        id: p.id.toString(),
+        name: p.name,
+        category: p.category || 'Espresso Based',
+        subcategory: p.subcategory || null,
+        price: Number(p.price) || 0,
+        description: p.description || '',
+        image: p.image || '',
+        isAvailable: p.is_available === 0 ? false : true,
+        isFavorite: isFav,
+        is_favorite: isFav,
+      };
+    });
     return res.json(mapped);
   } catch (error: any) {
     console.error('Error getProducts:', error);

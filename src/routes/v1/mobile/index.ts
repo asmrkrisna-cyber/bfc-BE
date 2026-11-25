@@ -6,14 +6,18 @@ import promoRoutes from './promo.routes';
 import orderRoutes from './order.routes';
 import aiRoutes from './ai.routes';
 import pointRoutes from '../point.routes';
+import favoriteRoutes from '../favorite.routes';
+import paymentRoutes from '../payment.routes';
 
 const router = Router();
 
 router.use('/auth', authRoutes);
 router.use('/profile', profileRoutes);
 router.use('/products', productRoutes);
+router.use('/favorites', favoriteRoutes);
 router.use('/promos', promoRoutes);
 router.use('/orders', orderRoutes);
+router.use('/payments', paymentRoutes);
 router.use('/ai-chat', aiRoutes);
 router.use('/ai', aiRoutes);
 router.use('/points', pointRoutes);

@@ -17,7 +17,7 @@ export const securityHeaders = helmet({
  */
 export const globalRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 menit
-  max: 300, // Maksimal 300 request per window per IP
+  max: 3000, // Kuota memadai untuk polling POS dapur & live tracking mobile
   standardHeaders: true, // Mengembalikan info rate limit di header `RateLimit-*`
   legacyHeaders: false, // Non-aktifkan header usang `X-RateLimit-*`
   message: {

@@ -9,10 +9,18 @@ import cashierRoutes from './cashier.routes';
 import mobileRoutes from './mobile';
 import aiRoutes from './ai.routes';
 import pointRoutes from './point.routes';
+import favoriteRoutes from './favorite.routes';
+import userRoutes from './user.routes';
+import orderRoutes from './order.routes';
+import paymentRoutes from './payment.routes';
 
 const router = Router();
 
 router.use('/auth', authRoutes);
+router.use('/users', userRoutes);
+router.use('/favorites', favoriteRoutes);
+router.use('/orders', orderRoutes);
+router.use('/payments', paymentRoutes);
 router.use('/products', productRoutes);
 router.use('/shifts', shiftRoutes);
 router.use('/transactions', transactionRoutes);

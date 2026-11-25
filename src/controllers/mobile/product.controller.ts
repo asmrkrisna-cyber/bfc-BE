@@ -1,9 +1,11 @@
 import { Request, Response } from 'express';
 import pool from '../../config/database';
+import { getUserFavoriteProductIds } from '../../services/favorite.service';
 
 /**
  * 1. Ambil Katalog Produk untuk Aplikasi Mobile
  * Mendukung filter: category, subcategory, dan query pencarian.
+ * Menyertakan is_favorite / isFavorite jika customer terautentikasi.
  */
 export const getMobileProducts = async (req: Request, res: Response): Promise<any> => {
   try {
@@ -35,18 +37,28 @@ export const getMobileProducts = async (req: Request, res: Response): Promise<an
     query += ' ORDER BY id ASC';
 
     const [rows]: any = await pool.query(query, params);
+    const favoriteIds = req.customer?.id
+      ? await getUserFavoriteProductIds(req.customer.id)
+      : new Set<number>();
 
-    const mapped = rows.map((p: any) => ({
-      id: p.id.toString(),
-      name: p.name,
-      price: Math.round(Number(p.price)),
-      category: p.category || 'Kopi',
-      subcategory: p.subcategory || 'Hot Coffee',
-      tag: p.tag || null,
-      description: p.description || '',
-      image: p.image || '',
-      isAvailable: p.is_available === 1 || p.is_available === true,
-    }));
+    const mapped = rows.map((p: any) => {
+      const numId = Number(p.id);
+      const isFav = favoriteIds.has(numId);
+      return {
+        id: p.id.toString(),
+        name: p.name,
+        price: Math.round(Number(p.price)),
+        category: p.category || 'Kopi',
+        subcategory: p.subcategory || null,
+        tag: p.tag || null,
+        description: p.description || '',
+        image: p.image || '',
+        isAvailable: p.is_available === 1 || p.is_available === true,
+        is_available: p.is_available === 1 || p.is_available === true,
+        isFavorite: isFav,
+        is_favorite: isFav,
+      };
+    });
 
     return res.json({
       success: true,
